@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>PointBar — On se retrouve à mi-chemin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <style>
+    :root { --bg:#0f1115; --fg:#e7eaf0; --muted:#9aa4b2; --accent:#5ee1a9; }
+    html,body{height:100%; margin:0; background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto; }
+    .app{display:grid; grid-template-columns: 360px 1fr; height:100%;}
+    aside{padding:16px; overflow:auto; border-right:1px solid #1e2230;}
+    h1{margin:0 0 4px 0; font-size:22px;}
+    small{color:var(--muted)}
+    .card{border:1px solid #22283a; border-radius:12px; padding:10px; margin-bottom:10px; background:#111523;}
+    input[type="text"]{width:100%; padding:10px 12px; border-radius:10px; border:1px solid #2a3146; background:#0d1220; color:var(--fg)}
+    button{background:var(--accent); border:0; color:#0b1320; padding:10px 12px; border-radius:10px; cursor:pointer; font-weight:600}
+    button:disabled{opacity:0.6; cursor:not-allowed}
+    .row{display:flex; gap:8px; align-items:center}
+    .muted{color:var(--muted)}
+    #map{height:100%; width:100%}
+    a{color:#8ad6ff}
+    .pill{display:inline-block; background:#1a2033; border:1px solid #243053; padding:2px 8px; border-radius:999px; font-size:12px; color:var(--muted)}
+    .list li{margin-bottom:10px}
+    .ok{color:#6ef0b3}
+    .warn{color:#f0d46e}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>PointBar</h1>
+    <small>On se retrouve à mi-chemin.</small>
+    <div style="height:8px"></div>
+
+    <div id="origins"></div>
+    <div class="row" style="margin:8px 0 14px 0">
+      <button id="addOrigin">+ Ajouter une adresse</button>
+      <button id="findBtn">Trouver 3 bars équitables</button>
+    </div>
+    <div id="status" class="muted"></div>
+
+    <h3>Résultats</h3>
+    <ul id="results" class="list"></ul>
+    <p class="muted">Astuce : clique sur un bar → <span class="pill">Ouvrir dans Google Maps</span></p>
+    <div style="height:12px"></div>
+    <div class="card muted">
+      <b>Comment ça marche ?</b><br/>
+      • Géocodage via Photon (OpenStreetMap).<br/>
+      • Point central par médiane géométrique (Weiszfeld).<br/>
+      • Bars via Overpass (OSM).<br/>
+      • Temps à pied via OSRM “table”.<br/>
+      • Classement par minimisation du temps le plus long (équité).
+    </div>
+  </aside>
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+  // ---------- UI minimal ----------
+  const originsDiv = document.getElementById('origins');
+  const resultsEl  = document.getElementById('results');
+  const statusEl   = document.getElementById('status');
+  const addBtn     = document.getElementById('addOrigin');
+  const findBtn    = document.getElementById('findBtn');
+
+  let originInputs = [];
+
+  function addOriginRow(value=''){
+    const wrap = document.createElement('div');
+    wrap.className = 'card';
+    wrap.innerHTML = `
+      <div class="row">
+        <input type="text" placeholder="Adresse (ex: Gare Montparnasse)" value="${value}">
+        <button class="remove">✕</button>
+      </div>`;
+    originsDiv.appendChild(wrap);
+    const input = wrap.querySelector('input');
+    const remove = wrap.querySelector('.remove');
+    remove.onclick = () => { wrap.remove(); originInputs = originInputs.filter(i=>i!==input); };
+    originInputs.push(input);
+  }
+
+  addBtn.onclick = () => addOriginRow('');
+  // Trois champs par défaut pour tester vite :
+  addOriginRow('Gare Montparnasse, Paris');
+  addOriginRow('Belleville, Paris');
+  addOriginRow('Place de la République, Paris');
+
+  // ---------- Carte ----------
+  const map = L.map('map').setView([48.8566, 2.3522], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  let originMarkers = [];
+  let barMarkers = [];
+
+  function clearMarkers(){
+    originMarkers.forEach(m => m.remove());
+    barMarkers.forEach(m => m.remove());
+    originMarkers = []; barMarkers = [];
+  }
+
+  // ---------- Utilitaires ----------
+  async function geocode(addr){
+    const url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(addr) + '&lang=fr&limit=1';
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('Geocoding error');
+    const j = await r.json();
+    const f = j.features?.[0];
+    if(!f) throw new Error('Adresse introuvable : ' + addr);
+    const [lon, lat] = f.geometry.coordinates;
+    return { label: addr, lat, lon };
+  }
+
+  function weiszfeld(points, maxIter=100, eps=1e-7){
+    let x = points.reduce((s,p)=>s+p.lon,0)/points.length;
+    let y = points.reduce((s,p)=>s+p.lat,0)/points.length;
+    for(let k=0;k<maxIter;k++){
+      let nx=0, ny=0, den=0;
+      for(const p of points){
+        const dx=x-p.lon, dy=y-p.lat;
+        const d=Math.hypot(dx,dy)||eps;
+        nx += p.lon/d; ny += p.lat/d; den += 1/d;
+      }
+      nx/=den; ny/=den;
+      if(Math.hypot(nx-x,ny-y)<eps) return {lat:ny,lon:nx};
+      x=nx; y=ny;
+    }
+    return {lat:y,lon:x};
+  }
+
+  async function fetchOverpassBars(lat, lon, radius=900){
+    const q = `[out:json][timeout:25];
+      node["amenity"~"bar|pub|cafe"](around:${radius},${lat},${lon});
+      out center 60;`;
+    const r = await fetch('https://overpass-api.de/api/interpreter', {method:'POST', body:q});
+    if(!r.ok) throw new Error('Overpass error');
+    const j = await r.json();
+    return (j.elements||[]).map(e => ({ name: e.tags?.name || 'Bar sans nom', lat:e.lat, lon:e.lon }));
+  }
+
+  async function osrmTable(origins, dests){
+    const coords = [...origins, ...dests].map(p=>`${p.lon},${p.lat}`).join(';');
+    const sources = origins.map((_,i)=>i).join(';');
+    const url = `https://router.project-osrm.org/table/v1/foot/${coords}?sources=${sources}`;
+    const r = await fetch(url);
+    if(!r.ok) throw new Error('OSRM error');
+    return r.json();
+  }
+
+  function scoreBars(origins, bars, durations){
+    // durations: array[src][src+dests] → on coupe aux dests
+    const srcCount = origins.length;
+    const mat = durations.map(row => row.slice(srcCount));
+    return bars.map((b, j)=> {
+      const times = mat.map(row => Math.round((row[j]||0)/60));
+      const finite = times.map(t => Number.isFinite(t) ? t : 999);
+      const max = Math.max(...finite);
+      const mean = finite.reduce((a,b)=>a+b,0)/finite.length;
+      const std = Math.sqrt(finite.map(t => (t-mean)**2).reduce((a,b)=>a+b,0)/finite.length);
+      return { place:b, metrics:{times, max, mean, std, score:max} };
+    }).sort((a,b)=>
+      a.metrics.score - b.metrics.score ||
+      a.metrics.mean  - b.metrics.mean  ||
+      a.metrics.std   - b.metrics.std
+    ).slice(0,3);
+  }
+
+  function fitBoundsFor(origins, bars){
+    const latlngs = [...origins.map(o=>[o.lat,o.lon]), ...bars.map(b=>[b.place.lat,b.place.lon])];
+    if(latlngs.length) map.fitBounds(latlngs, {padding:[40,40]});
+  }
+
+  function renderResults(top, origins){
+    resultsEl.innerHTML = '';
+    clearMarkers();
+
+    origins.forEach((o,i)=>{
+      const m = L.marker([o.lat,o.lon]).addTo(map).bindPopup(`Origine ${i+1}<br>${o.label}`);
+      originMarkers.push(m);
+    });
+
+    top.forEach((r,idx)=>{
+      const m = L.marker([r.place.lat, r.place.lon]).addTo(map)
+        .bindPopup(`<b>${idx+1}. ${r.place.name}</b><br>Temps (min): ${r.metrics.times.join(' / ')}<br>
+        <a target="_blank" href="https://www.google.com/maps/search/?api=1&query=${r.place.lat},${r.place.lon}">Ouvrir dans Google Maps</a>`);
+      barMarkers.push(m);
+
+      const li = document.createElement('li');
+      const cls = r.metrics.max <= 25 ? 'ok' : (r.metrics.max <= 35 ? 'warn' : '');
+      li.innerHTML = `<b>${idx+1}. ${r.place.name}</b><br>
+        <span class="${cls}">max: ${r.metrics.max} min</span> — moyenne: ${r.metrics.mean.toFixed(1)} — 
+        <span class="muted">(${r.metrics.times.join(' / ')})</span> — 
+        <a target="_blank" href="https://www.google.com/maps/search/?api=1&query=${r.place.lat},${r.place.lon}">Itinéraire</a>`;
+      resultsEl.appendChild(li);
+    });
+
+    fitBoundsFor(origins, top);
+  }
+
+  async function run(){
+    try{
+      findBtn.disabled = true; statusEl.textContent = 'Géocodage des adresses...';
+      const addr = originInputs.map(i => i.value.trim()).filter(Boolean);
+      if(addr.length < 2){ alert('Ajoute au moins 2 adresses.'); findBtn.disabled=false; statusEl.textContent=''; return; }
+
+      // 1) Géocodage
+      const origins = [];
+      for(const a of addr){
+        const p = await geocode(a);
+        origins.push(p);
+      }
+
+      // 2) Pivot & bars
+      statusEl.textContent = 'Recherche des bars proches du milieu...';
+      const pivot = weiszfeld(origins);
+      let bars = await fetchOverpassBars(pivot.lat, pivot.lon, 900);
+      if(bars.length < 15) bars = await fetchOverpassBars(pivot.lat, pivot.lon, 1200);
+
+      if(!bars.length){ statusEl.textContent = 'Aucun bar trouvé à proximité.'; findBtn.disabled=false; return; }
+
+      // 3) Matrice de temps & scoring
+      statusEl.textContent = 'Calcul des temps à pied...';
+      const table = await osrmTable(origins, bars);
+      const top = scoreBars(origins, bars, table.durations);
+
+      statusEl.textContent = '';
+      renderResults(top, origins);
+    }catch(e){
+      console.error(e);
+      statusEl.textContent = 'Erreur : ' + (e.message || e);
+      alert('Erreur: ' + (e.message || e));
+    }finally{
+      findBtn.disabled = false;
+    }
+  }
+
+  findBtn.onclick = run;
+</script>
+</body>
+</html>
