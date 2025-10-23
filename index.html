@@ -4,104 +4,119 @@
   <meta charset="utf-8" />
   <title>PointBar — On se retrouve à mi-chemin</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
   <style>
-    :root { --bg:#0f1115; --fg:#e7eaf0; --muted:#9aa4b2; --accent:#5ee1a9; }
-    html,body{height:100%; margin:0; background:var(--bg); color:var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto; }
-    .app{display:grid; grid-template-columns: 360px 1fr; height:100%;}
-    aside{padding:16px; overflow:auto; border-right:1px solid #1e2230;}
-    h1{margin:0 0 4px 0; font-size:22px;}
-    small{color:var(--muted)}
-    .card{border:1px solid #22283a; border-radius:12px; padding:10px; margin-bottom:10px; background:#111523;}
-    input[type="text"]{width:100%; padding:10px 12px; border-radius:10px; border:1px solid #2a3146; background:#0d1220; color:var(--fg)}
-    button{background:var(--accent); border:0; color:#0b1320; padding:10px 12px; border-radius:10px; cursor:pointer; font-weight:600}
-    button:disabled{opacity:0.6; cursor:not-allowed}
-    .row{display:flex; gap:8px; align-items:center}
-    .muted{color:var(--muted)}
-    #map{height:100%; width:100%}
-    a{color:#8ad6ff}
-    .pill{display:inline-block; background:#1a2033; border:1px solid #243053; padding:2px 8px; border-radius:999px; font-size:12px; color:var(--muted)}
-    .list li{margin-bottom:10px}
-    .ok{color:#6ef0b3}
-    .warn{color:#f0d46e}
+    :root {
+      --bg: #0e1116; --panel:#101522; --panel2:#0c1020; --fg:#e7eaf0; --muted:#9aa4b2;
+      --line:#232a3d; --accent:#67f0b3; --accent-ink:#0b1320; --warn:#f0d46e; --ok:#6ef0b3;
+    }
+    * { box-sizing: border-box; }
+    html,body { height:100%; margin:0; background:var(--bg); color:var(--fg);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    a { color:#8ad6ff; text-decoration:none; }
+    .app { display:grid; grid-template-columns: 380px 1fr; height:100%; }
+    aside { padding:14px; overflow:auto; border-right:1px solid var(--line); background:var(--panel); }
+    header h1 { margin:0; font-size:22px; letter-spacing:.2px; }
+    header small { color:var(--muted); }
+    .card { border:1px solid var(--line); background:var(--panel2); border-radius:14px; padding:10px; margin-bottom:10px; }
+    .row { display:flex; gap:8px; align-items:center; }
+    .stack { display:flex; flex-direction:column; gap:8px; }
+    input[type="text"] {
+      width:100%; padding:12px 12px; border-radius:12px; border:1px solid #26304a; background:#0c1223; color:var(--fg);
+    }
+    button {
+      background:var(--accent); color:var(--accent-ink); border:0; padding:12px 14px; border-radius:12px; font-weight:700; cursor:pointer;
+    }
+    button.secondary { background:#1b243a; color:#d9e0ef; border:1px solid var(--line); }
+    button.ghost { background:transparent; color:#c9d2e3; border:1px dashed var(--line); }
+    button:disabled { opacity:.6; cursor:not-allowed; }
+    .btnbar { display:flex; gap:8px; flex-wrap:wrap; }
+    .chip { display:inline-block; padding:4px 10px; border-radius:999px; border:1px solid var(--line); color:var(--muted); font-size:12px; }
+    #map { height:100%; width:100%; }
+    ul.list { list-style:none; margin:8px 0 0 0; padding:0; }
+    ul.list li { margin:0 0 10px 0; padding:10px; border:1px solid var(--line); border-radius:12px; background:#0f1426; }
+    .metric { font-size:12px; color:var(--muted); }
+    .badge { border-radius:8px; padding:2px 8px; font-size:12px; }
+    .ok { color:var(--ok); } .warn { color:var(--warn); }
+    .muted { color:var(--muted); }
+
+    /* Loader overlay */
+    .overlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center; backdrop-filter:saturate(120%) blur(2px); }
+    .overlay.show { display:flex; }
+    .spinner { width:42px; height:42px; border:4px solid #2a3553; border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Mobile */
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      aside { border-right:none; border-bottom:1px solid var(--line); }
+      .btnbar { gap:6px; }
+      button { flex:1; }
+    }
   </style>
 </head>
 <body>
 <div class="app">
   <aside>
-    <h1>PointBar</h1>
-    <small>On se retrouve à mi-chemin.</small>
-    <div style="height:8px"></div>
+    <header class="stack" style="gap:4px">
+      <h1>PointBar</h1>
+      <small>On se retrouve à mi-chemin.</small>
+    </header>
 
     <div id="origins"></div>
-    <div class="row" style="margin:8px 0 14px 0">
-      <button id="addOrigin">+ Ajouter une adresse</button>
+
+    <div class="btnbar" style="margin:8px 0 12px 0">
+      <button id="addOrigin" class="secondary">+ Ajouter une adresse</button>
+      <button id="useGPS" class="ghost">📍 Use my location</button>
       <button id="findBtn">Trouver 3 bars équitables</button>
     </div>
+
     <div id="status" class="muted"></div>
 
-    <h3>Résultats</h3>
+    <div class="row" style="justify-content:space-between; align-items:center; margin-top:12px">
+      <h3 style="margin:0">Résultats</h3>
+      <button id="shareBtn" class="secondary" title="Partager">Partager</button>
+    </div>
     <ul id="results" class="list"></ul>
-    <p class="muted">Astuce : clique sur un bar → <span class="pill">Ouvrir dans Google Maps</span></p>
-    <div style="height:12px"></div>
-    <div class="card muted">
+
+    <div class="card muted" style="margin-top:12px">
       <b>Comment ça marche ?</b><br/>
-      • Géocodage via Photon (OpenStreetMap).<br/>
-      • Point central par médiane géométrique (Weiszfeld).<br/>
+      • Autocomplete (Photon / OSM) — tape naturellement « Bastille, Paris ». <br/>
+      • Milieu équitable (médiane géométrique).<br/>
       • Bars via Overpass (OSM).<br/>
       • Temps à pied via OSRM “table”.<br/>
-      • Classement par minimisation du temps le plus long (équité).
+      • Classement : on minimise le <i>temps max</i> (équité).
     </div>
   </aside>
+
   <div id="map"></div>
 </div>
+
+<!-- Loader Overlay -->
+<div id="overlay" class="overlay"><div class="spinner"></div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
-  // ---------- UI minimal ----------
+  // ====== UI refs ======
   const originsDiv = document.getElementById('origins');
   const resultsEl  = document.getElementById('results');
   const statusEl   = document.getElementById('status');
   const addBtn     = document.getElementById('addOrigin');
   const findBtn    = document.getElementById('findBtn');
+  const shareBtn   = document.getElementById('shareBtn');
+  const overlay    = document.getElementById('overlay');
+  const useGPSBtn  = document.getElementById('useGPS');
 
-  let originInputs = [];
+  let originRows = []; // {wrap,input,lat,lon,label}
+  let lastTop    = []; // résultats courants
 
-  function addOriginRow(value=''){
-    const wrap = document.createElement('div');
-    wrap.className = 'card';
-    wrap.innerHTML = `
-      <div class="row">
-        <input type="text" placeholder="Adresse (ex: Gare Montparnasse)" value="${value}">
-        <button class="remove">✕</button>
-      </div>`;
-    originsDiv.appendChild(wrap);
-    const input = wrap.querySelector('input');
-    const remove = wrap.querySelector('.remove');
-    remove.onclick = () => { wrap.remove(); originInputs = originInputs.filter(i=>i!==input); };
-    originInputs.push(input);
-  }
-
-  addBtn.onclick = () => addOriginRow('');
-  // Trois champs par défaut pour tester vite :
-  addOriginRow('Gare Montparnasse, Paris');
-  addOriginRow('Belleville, Paris');
-  addOriginRow('Place de la République, Paris');
-
-  // ---------- Carte ----------
-  const map = L.map('map').setView([48.8566, 2.3522], 12);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap'
-  }).addTo(map);
-
-  let originMarkers = [];
-  let barMarkers = [];
+  // ====== Map ======
+  const map = L.map('map', { zoomControl: true }).setView([48.8566, 2.3522], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+              { attribution: '&copy; OpenStreetMap' }).addTo(map);
+  let originMarkers = [], barMarkers = [];
 
   function clearMarkers(){
     originMarkers.forEach(m => m.remove());
@@ -109,16 +124,26 @@
     originMarkers = []; barMarkers = [];
   }
 
-  // ---------- Utilitaires ----------
-  async function geocode(addr){
-    const url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(addr) + '&lang=fr&limit=1';
-    const r = await fetch(url);
-    if(!r.ok) throw new Error('Geocoding error');
-    const j = await r.json();
-    const f = j.features?.[0];
-    if(!f) throw new Error('Adresse introuvable : ' + addr);
-    const [lon, lat] = f.geometry.coordinates;
-    return { label: addr, lat, lon };
+  // ====== Helpers ======
+  function showLoad(v){ overlay.classList.toggle('show', !!v); }
+  function setStatus(msg=''){ statusEl.textContent = msg||''; }
+
+  async function photonSuggest(q, limit=5){
+    const url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(q) + '&lang=fr&limit=' + limit;
+    const r = await fetch(url); if(!r.ok) return [];
+    const j = await r.json(); return (j.features||[]).map(f => ({
+      label: f.properties?.name + (f.properties?.city ? ', ' + f.properties.city : ''),
+      lat: f.geometry.coordinates[1],
+      lon: f.geometry.coordinates[0]
+    }));
+  }
+
+  async function geocodeOne(raw){
+    // If row already has lat/lon (GPS) return it
+    if (raw && typeof raw.lat === 'number' && typeof raw.lon === 'number') return raw;
+    const sugg = await photonSuggest(raw, 1);
+    if(!sugg.length) throw new Error('Adresse introuvable : ' + raw);
+    return { label: raw, lat: sugg[0].lat, lon: sugg[0].lon };
   }
 
   function weiszfeld(points, maxIter=100, eps=1e-7){
@@ -158,7 +183,6 @@
   }
 
   function scoreBars(origins, bars, durations){
-    // durations: array[src][src+dests] → on coupe aux dests
     const srcCount = origins.length;
     const mat = durations.map(row => row.slice(srcCount));
     return bars.map((b, j)=> {
@@ -185,7 +209,7 @@
     clearMarkers();
 
     origins.forEach((o,i)=>{
-      const m = L.marker([o.lat,o.lon]).addTo(map).bindPopup(`Origine ${i+1}<br>${o.label}`);
+      const m = L.marker([o.lat,o.lon]).addTo(map).bindPopup(`Origine ${i+1}<br>${o.label||`${o.lat.toFixed(4)}, ${o.lon.toFixed(4)}`}`);
       originMarkers.push(m);
     });
 
@@ -195,56 +219,150 @@
         <a target="_blank" href="https://www.google.com/maps/search/?api=1&query=${r.place.lat},${r.place.lon}">Ouvrir dans Google Maps</a>`);
       barMarkers.push(m);
 
-      const li = document.createElement('li');
       const cls = r.metrics.max <= 25 ? 'ok' : (r.metrics.max <= 35 ? 'warn' : '');
-      li.innerHTML = `<b>${idx+1}. ${r.place.name}</b><br>
-        <span class="${cls}">max: ${r.metrics.max} min</span> — moyenne: ${r.metrics.mean.toFixed(1)} — 
-        <span class="muted">(${r.metrics.times.join(' / ')})</span> — 
-        <a target="_blank" href="https://www.google.com/maps/search/?api=1&query=${r.place.lat},${r.place.lon}">Itinéraire</a>`;
+      const li = document.createElement('li');
+      li.innerHTML = `<div class="row" style="justify-content:space-between; gap:8px">
+        <div>
+          <div style="font-weight:700">${idx+1}. ${r.place.name}</div>
+          <div class="metric">(${r.metrics.times.join(' / ')}) — moyenne: ${r.metrics.mean.toFixed(1)} min</div>
+        </div>
+        <div class="badge ${cls}" style="border:1px solid var(--line)">${r.metrics.max} min max</div>
+      </div>
+      <div class="row" style="margin-top:8px; gap:8px">
+        <a class="chip" target="_blank" href="https://www.google.com/maps/search/?api=1&query=${r.place.lat},${r.place.lon}">Itinéraire</a>
+        <button class="secondary" onclick="shareOne(${r.place.lat},${r.place.lon}, '${encodeURIComponent(r.place.name)}')">Partager ce bar</button>
+      </div>`;
       resultsEl.appendChild(li);
     });
 
     fitBoundsFor(origins, top);
+    lastTop = top;
   }
 
+  // ====== Origins UI ======
+  function addOriginRow(defaultText=''){
+    const wrap = document.createElement('div');
+    wrap.className = 'card';
+    wrap.innerHTML = `
+      <div class="stack">
+        <input type="text" placeholder="Adresse (ex: Bastille, Paris)" value="${defaultText}">
+        <div class="row" style="gap:6px">
+          <button class="ghost remove">Supprimer</button>
+        </div>
+        <datalist></datalist>
+      </div>`;
+    originsDiv.appendChild(wrap);
+
+    const input = wrap.querySelector('input');
+    const remove = wrap.querySelector('.remove');
+    const dl     = wrap.querySelector('datalist');
+    const id     = 'dl-' + Math.random().toString(36).slice(2);
+    input.setAttribute('list', id);
+    dl.id = id;
+
+    input.addEventListener('input', async (e)=>{
+      const q = e.target.value.trim();
+      if(q.length < 3) { dl.innerHTML=''; return; }
+      try {
+        const sugg = await photonSuggest(q, 5);
+        dl.innerHTML = sugg.map(s => `<option value="${s.label}"></option>`).join('');
+      } catch {}
+    });
+
+    remove.onclick = () => { wrap.remove(); originRows = originRows.filter(r => r.wrap !== wrap); };
+
+    originRows.push({wrap, input, lat:null, lon:null, label: defaultText});
+  }
+
+  // Default three (différentes de la démo précédente)
+  addOriginRow('Bastille, Paris');
+  addOriginRow('Porte de Clignancourt, Paris');
+  addOriginRow('Jardin du Luxembourg, Paris');
+
+  addBtn.onclick = () => addOriginRow('');
+
+  // ====== GPS button ======
+  useGPSBtn.onclick = () => {
+    if(!navigator.geolocation){ alert("La géolocalisation n'est pas disponible."); return; }
+    navigator.geolocation.getCurrentPosition((pos)=>{
+      const { latitude:lat, longitude:lon } = pos.coords;
+      const wrap = document.createElement('div');
+      wrap.className = 'card';
+      wrap.innerHTML = `
+        <div class="stack">
+          <div class="row" style="justify-content:space-between"><b>Ma position actuelle</b><span class="chip">GPS</span></div>
+          <div class="row" style="gap:6px"><button class="ghost remove">Supprimer</button></div>
+        </div>`;
+      originsDiv.prepend(wrap);
+      const remove = wrap.querySelector('.remove');
+      const row = { wrap, input:null, lat, lon, label:'Ma position' };
+      remove.onclick = () => { wrap.remove(); originRows = originRows.filter(r => r !== row); };
+      originRows.unshift(row);
+      L.marker([lat,lon]).addTo(map).bindPopup('Ma position');
+      map.setView([lat,lon], 13);
+    }, ()=> alert("Impossible d'obtenir la position."));
+  };
+
+  // ====== Main flow ======
   async function run(){
     try{
-      findBtn.disabled = true; statusEl.textContent = 'Géocodage des adresses...';
-      const addr = originInputs.map(i => i.value.trim()).filter(Boolean);
-      if(addr.length < 2){ alert('Ajoute au moins 2 adresses.'); findBtn.disabled=false; statusEl.textContent=''; return; }
-
-      // 1) Géocodage
-      const origins = [];
-      for(const a of addr){
-        const p = await geocode(a);
-        origins.push(p);
+      setStatus('Préparation…'); showLoad(true); findBtn.disabled = true;
+      // Collect & geocode
+      const addr = [];
+      for(const r of originRows){
+        if (r.input) {
+          const t = r.input.value.trim();
+          if(t) addr.push(t);
+        } else if (typeof r.lat === 'number' && typeof r.lon === 'number') {
+          addr.push({ label: r.label, lat:r.lat, lon:r.lon });
+        }
       }
+      if(addr.length < 2) { showLoad(false); findBtn.disabled=false; return alert('Ajoute au moins 2 adresses.'); }
 
-      // 2) Pivot & bars
-      statusEl.textContent = 'Recherche des bars proches du milieu...';
+      setStatus('Géocodage des adresses…');
+      const origins = [];
+      for(const a of addr){ origins.push(await geocodeOne(a)); }
+
+      // Pivot + bars
+      setStatus('Recherche des bars proches du milieu…');
       const pivot = weiszfeld(origins);
       let bars = await fetchOverpassBars(pivot.lat, pivot.lon, 900);
       if(bars.length < 15) bars = await fetchOverpassBars(pivot.lat, pivot.lon, 1200);
+      if(!bars.length){ setStatus('Aucun bar trouvé.'); showLoad(false); findBtn.disabled=false; return; }
 
-      if(!bars.length){ statusEl.textContent = 'Aucun bar trouvé à proximité.'; findBtn.disabled=false; return; }
-
-      // 3) Matrice de temps & scoring
-      statusEl.textContent = 'Calcul des temps à pied...';
+      // Durations + scoring
+      setStatus('Calcul des temps à pied…');
       const table = await osrmTable(origins, bars);
       const top = scoreBars(origins, bars, table.durations);
 
-      statusEl.textContent = '';
+      setStatus(''); showLoad(false); findBtn.disabled=false;
       renderResults(top, origins);
     }catch(e){
       console.error(e);
-      statusEl.textContent = 'Erreur : ' + (e.message || e);
-      alert('Erreur: ' + (e.message || e));
-    }finally{
-      findBtn.disabled = false;
+      setStatus('Erreur : ' + (e.message||e)); showLoad(false); findBtn.disabled=false;
+      alert('Erreur: ' + (e.message||e));
     }
   }
-
   findBtn.onclick = run;
+
+  // ====== Share buttons ======
+  function shareTextForTop(){
+    if(!lastTop.length) return 'PointBar — On se retrouve à mi-chemin.';
+    const best = lastTop[0];
+    const gmap = `https://www.google.com/maps/search/?api=1&query=${best.place.lat},${best.place.lon}`;
+    return `On se retrouve ici ? ${best.place.name} (${best.metrics.max} min max chacun)\n${gmap}`;
+  }
+  window.shareOne = function(lat, lon, nameEnc){
+    const name = decodeURIComponent(nameEnc);
+    const txt = `On se retrouve ici ? ${name}\nhttps://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+    if(navigator.share){ navigator.share({ text: txt }).catch(()=>{}); }
+    else { window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank'); }
+  };
+  shareBtn.onclick = ()=>{
+    const txt = shareTextForTop();
+    if(navigator.share){ navigator.share({ text: txt }).catch(()=>{}); }
+    else { window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, '_blank'); }
+  };
 </script>
 </body>
 </html>
